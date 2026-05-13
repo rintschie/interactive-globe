@@ -1,0 +1,6 @@
+{
+  "name": "reduced-interactive-globe",
+  "scripts": {
+    "dev": "npx serve ."
+  }
+}
