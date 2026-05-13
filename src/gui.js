@@ -1,17 +1,12 @@
 import GUI from 'three/addons/libs/lil-gui.module.min.js';
 import * as THREE from 'three';
 
-const D = Math.PI / 180;
 const PRESETS = {
   'Front': {
     pos: new THREE.Vector3(0, 0, 9),
     lookAt: new THREE.Vector3(0, 0, 0),
   },
-  'North Pole': {
-    pos: new THREE.Vector3(9 * Math.sin(10 * D), 9 * Math.cos(10 * D), 0),
-    lookAt: new THREE.Vector3(0, 0, 0),
-  },
-  'Cinematic': {
+'Cinematic': {
     pos: new THREE.Vector3(0, 3.5, 4.5),
     lookAt: new THREE.Vector3(0, 1.5, 0),
   },
@@ -20,7 +15,7 @@ const PRESETS = {
 export function createGUI(params, cameraState, onRebuild, onBgChange, onBackOpacityChange) {
   const gui = new GUI({ title: 'Globe Controls' });
 
-  const presetObj = { view: 'Front' };
+  const presetObj = { view: 'Cinematic' };
   gui.add(presetObj, 'view', Object.keys(PRESETS)).name('Camera Preset').onChange(v => {
     cameraState.target = PRESETS[v].pos.clone();
     cameraState.lookAt = PRESETS[v].lookAt.clone();

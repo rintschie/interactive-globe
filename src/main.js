@@ -5,12 +5,12 @@ import { startAnimation } from './animation.js';
 import { createThemeToggle } from './theme.js';
 
 const params = {
-  ringCount:       32,
-  dotsPerRing:     64,
-  dotSize:         0.045,
+  ringCount:       70,
+  dotsPerRing:     170,
+  dotSize:         0.005,
   sphereRadius:    3,
   rotationSpeed:   0.1,
-  backOpacity:     1.0,
+  backOpacity:     0,
   backgroundColor: '#F8F9FA',
 };
 
@@ -18,6 +18,14 @@ const cameraState = { target: null, lookAt: null };
 
 const { scene, camera, renderer, orbitControls } = createScene();
 const mat = getDotMaterial();
+
+// Start in Cinematic view
+camera.position.set(0, 3.5, 4.5);
+orbitControls.target.set(0, 1.5, 0);
+camera.lookAt(0, 1.5, 0);
+orbitControls.update();
+
+mat.uniforms.uBackOpacity.value = params.backOpacity;
 
 buildSphere(scene, params);
 
