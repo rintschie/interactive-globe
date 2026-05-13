@@ -15,6 +15,9 @@ const params = {
   continentsEnabled: false,
   dotSizeBlack:      0.005,
   dotSizeWhite:      0.005,
+  hoverStrength:     0.25,
+  hoverRadius:       100,
+  hoverElevation:    0,
   backgroundColor:   '#F8F9FA',
 };
 
@@ -34,6 +37,9 @@ mat.uniforms.uBackOpacity.value  = params.backOpacity;
 mat.uniforms.uSphereRadius.value  = params.sphereRadius;
 mat.uniforms.uDotSizeBlack.value  = params.dotSizeBlack;
 mat.uniforms.uDotSizeWhite.value  = params.dotSizeWhite;
+mat.uniforms.uHoverRadius.value    = params.hoverRadius;
+mat.uniforms.uHoverStrength.value  = params.hoverStrength;
+mat.uniforms.uHoverElevation.value = params.hoverElevation;
 
 new THREE.TextureLoader().load(
   './images/8081_earthspec2k.jpg',
@@ -52,8 +58,29 @@ createGUI(
   v   => { mat.uniforms.uUseMap.value = v; },
   v   => { mat.uniforms.uSphereRadius.value = v; },
   v   => { mat.uniforms.uDotSizeBlack.value = v; },
-  v   => { mat.uniforms.uDotSizeWhite.value = v; }
+  v   => { mat.uniforms.uDotSizeWhite.value = v; },
+  v   => { mat.uniforms.uHoverStrength.value = v; },
+  v   => { mat.uniforms.uHoverRadius.value = v; },
+  v   => { mat.uniforms.uHoverElevation.value = v; }
 );
 
 startAnimation(renderer, scene, camera, orbitControls, getActiveMesh, params, cameraState, mat);
 createThemeToggle(scene, mat, params);
+
+// Hover effect — track mouse in WebGL screen coords (Y flipped)
+const canvas = renderer.domElement;
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  mat.uniforms.uMouseScreen.value.set(
+    e.clientX - rect.left,
+    rect.height - (e.clientY - rect.top)
+  );
+});
+canvas.addEventListener('mouseleave', () => {
+  mat.uniforms.uMouseScreen.value.set(-9999, -9999);
+});
+
+// Keep resolution uniform in sync
+window.addEventListener('resize', () => {
+  mat.uniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
+});

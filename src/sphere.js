@@ -16,6 +16,11 @@ const DOT_MAT = new THREE.ShaderMaterial({
     uSphereRadius:  { value: 3.0                       },
     uDotSizeBlack:  { value: 0.005                     },
     uDotSizeWhite:  { value: 0.005                     },
+    uMouseScreen:   { value: new THREE.Vector2(-9999, -9999) },
+    uResolution:    { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+    uHoverRadius:     { value: 100.0                   },
+    uHoverStrength:   { value: 0.25                    },
+    uHoverElevation:  { value: 0.0                     },
   },
   vertexShader: /* glsl */`
     #define PI 3.14159265358979
@@ -25,18 +30,21 @@ const DOT_MAT = new THREE.ShaderMaterial({
     uniform float     uDotSizeWhite;
     uniform sampler2D uMap;
     uniform bool      uUseMap;
+    uniform vec2      uMouseScreen;
+    uniform vec2      uResolution;
+    uniform float     uHoverRadius;
+    uniform float     uHoverStrength;
+    uniform float     uHoverElevation;
 
-    varying vec3 vWorldPos;
+    varying vec3 vDotCenter;
     varying vec3 vLocalPos;
 
     void main() {
-      vec3  dir      = vec3(instanceMatrix[3]);  // unit direction
-      float dotScale = instanceMatrix[0][0];      // base dot size from build
+      vec3  dir      = vec3(instanceMatrix[3]);
+      float dotScale = instanceMatrix[0][0];
 
-      // All dots sit on the same sphere radius
-      vLocalPos = dir * uSphereRadius;
+      vLocalPos  = dir * uSphereRadius;
 
-      // Dot size varies by UV luminance when map is active
       if (uUseMap) {
         float u   = 0.5 - atan(dir.z, dir.x) / (2.0 * PI);
         float v   = 0.5 + asin(clamp(dir.y, -1.0, 1.0)) / PI;
@@ -45,8 +53,22 @@ const DOT_MAT = new THREE.ShaderMaterial({
         dotScale  = mix(uDotSizeBlack, uDotSizeWhite, lum);
       }
 
+      // Screen-space hover: project dot centre, measure pixel distance to mouse
+      vec4  clip      = projectionMatrix * viewMatrix * modelMatrix * vec4(vLocalPos, 1.0);
+      vec2  ndc       = clip.xy / clip.w;
+      vec2  screen    = (ndc * 0.5 + 0.5) * uResolution;
+      float dist      = length(screen - uMouseScreen);
+      float hoverT    = 1.0 - smoothstep(0.0, uHoverRadius, dist);
+
+      // Elevate dot outward along sphere normal
+      vLocalPos += dir * uHoverElevation * hoverT;
+
+      vDotCenter = (modelMatrix * vec4(vLocalPos, 1.0)).xyz;
+
+      float hoverScale = 1.0 + uHoverStrength * hoverT;
+      dotScale *= hoverScale;
+
       vec3 vertexPos = vLocalPos + position * dotScale;
-      vWorldPos = (modelMatrix * vec4(vertexPos, 1.0)).xyz;
       gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(vertexPos, 1.0);
     }
   `,
@@ -59,12 +81,16 @@ const DOT_MAT = new THREE.ShaderMaterial({
     uniform float     uBackOpacity;
     uniform sampler2D uMap;
     uniform bool      uUseMap;
-    varying vec3      vWorldPos;
+    varying vec3      vDotCenter;
     varying vec3      vLocalPos;
 
     void main() {
-      float facing   = dot(normalize(vWorldPos), normalize(uCameraPos));
-      float backFade = smoothstep(0.1, -0.1, facing) * (1.0 - uBackOpacity);
+      // Use dot centre so the entire dot fades as one unit
+      float facing   = dot(normalize(vDotCenter), normalize(uCameraPos));
+      // uBackOpacity=0 → cutoff at horizon, uBackOpacity=1 → past back pole (all visible)
+      // 1.0 - smoothstep keeps edges in ascending order (GLSL-safe)
+      float cutoff   = -uBackOpacity;
+      float backFade = 1.0 - smoothstep(cutoff - 0.1, cutoff, facing);
 
       float t = backFade;
       gl_FragColor = vec4(mix(uDotColor, uBgColor, t), 1.0);
