@@ -2,34 +2,71 @@ import * as THREE from 'three';
 
 const DOT_GEO = new THREE.SphereGeometry(1, 7, 5);
 
-// ShaderMaterial: blends back-facing dots toward the background color
-// so backOpacity=0 makes them invisible, backOpacity=1 shows all dots equally
+const defaultMap = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+defaultMap.needsUpdate = true;
+
 const DOT_MAT = new THREE.ShaderMaterial({
   uniforms: {
     uDotColor:    { value: new THREE.Color('#374151') },
     uBgColor:     { value: new THREE.Color('#F8F9FA') },
     uCameraPos:   { value: new THREE.Vector3()        },
     uBackOpacity: { value: 1.0                        },
+    uMap:         { value: defaultMap                 },
+    uUseMap:      { value: false                      },
+    uSphereRadius:  { value: 3.0                       },
+    uDotSizeBlack:  { value: 0.005                     },
+    uDotSizeWhite:  { value: 0.005                     },
   },
   vertexShader: /* glsl */`
+    #define PI 3.14159265358979
+
+    uniform float     uSphereRadius;
+    uniform float     uDotSizeBlack;
+    uniform float     uDotSizeWhite;
+    uniform sampler2D uMap;
+    uniform bool      uUseMap;
+
     varying vec3 vWorldPos;
+    varying vec3 vLocalPos;
+
     void main() {
-      // World position of this dot's center (ignore vertex offset, just the instance translation)
-      vWorldPos = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-      gl_Position = projectionMatrix * viewMatrix * modelMatrix * instanceMatrix * vec4(position, 1.0);
+      vec3  dir      = vec3(instanceMatrix[3]);  // unit direction
+      float dotScale = instanceMatrix[0][0];      // base dot size from build
+
+      // All dots sit on the same sphere radius
+      vLocalPos = dir * uSphereRadius;
+
+      // Dot size varies by UV luminance when map is active
+      if (uUseMap) {
+        float u   = 0.5 - atan(dir.z, dir.x) / (2.0 * PI);
+        float v   = 0.5 + asin(clamp(dir.y, -1.0, 1.0)) / PI;
+        vec4  s   = texture2D(uMap, vec2(u, v));
+        float lum = 0.299 * s.r + 0.587 * s.g + 0.114 * s.b;
+        dotScale  = mix(uDotSizeBlack, uDotSizeWhite, lum);
+      }
+
+      vec3 vertexPos = vLocalPos + position * dotScale;
+      vWorldPos = (modelMatrix * vec4(vertexPos, 1.0)).xyz;
+      gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(vertexPos, 1.0);
     }
   `,
   fragmentShader: /* glsl */`
-    uniform vec3  uDotColor;
-    uniform vec3  uBgColor;
-    uniform vec3  uCameraPos;
-    uniform float uBackOpacity;
-    varying vec3  vWorldPos;
+    #define PI 3.14159265358979
+
+    uniform vec3      uDotColor;
+    uniform vec3      uBgColor;
+    uniform vec3      uCameraPos;
+    uniform float     uBackOpacity;
+    uniform sampler2D uMap;
+    uniform bool      uUseMap;
+    varying vec3      vWorldPos;
+    varying vec3      vLocalPos;
+
     void main() {
-      // Positive = facing camera, negative = facing away
-      float facing = dot(normalize(vWorldPos), normalize(uCameraPos));
-      // Smooth transition band around the terminator, then scale by (1 - backOpacity)
-      float t = smoothstep(0.1, -0.1, facing) * (1.0 - uBackOpacity);
+      float facing   = dot(normalize(vWorldPos), normalize(uCameraPos));
+      float backFade = smoothstep(0.1, -0.1, facing) * (1.0 - uBackOpacity);
+
+      float t = backFade;
       gl_FragColor = vec4(mix(uDotColor, uBgColor, t), 1.0);
     }
   `,
@@ -45,7 +82,7 @@ export function buildSphere(scene, params) {
     activeMesh = null;
   }
 
-  const { ringCount, dotsPerRing, dotSize, sphereRadius } = params;
+  const { ringCount, dotsPerRing, dotSize } = params;
 
   let total = 0;
   for (let i = 0; i < ringCount; i++) {
@@ -53,9 +90,9 @@ export function buildSphere(scene, params) {
     total += Math.max(1, Math.round(dotsPerRing * Math.sin(phi)));
   }
 
-  const mesh = new THREE.InstancedMesh(DOT_GEO, DOT_MAT, total);
+  const mesh   = new THREE.InstancedMesh(DOT_GEO, DOT_MAT, total);
   const matrix = new THREE.Matrix4();
-  const pos    = new THREE.Vector3();
+  const dir    = new THREE.Vector3();
   const scale  = new THREE.Vector3(dotSize, dotSize, dotSize);
   const quat   = new THREE.Quaternion();
 
@@ -66,17 +103,20 @@ export function buildSphere(scene, params) {
 
     for (let j = 0; j < ringDots; j++) {
       const theta = (j / ringDots) * 2 * Math.PI;
-      pos.set(
-        sphereRadius * Math.sin(phi) * Math.cos(theta),
-        sphereRadius * Math.cos(phi),
-        sphereRadius * Math.sin(phi) * Math.sin(theta)
+      // Store unit direction — radius applied per-frame in vertex shader
+      dir.set(
+        Math.sin(phi) * Math.cos(theta),
+        Math.cos(phi),
+        Math.sin(phi) * Math.sin(theta)
       );
-      matrix.compose(pos, quat, scale);
+      matrix.compose(dir, quat, scale);
       mesh.setMatrixAt(idx++, matrix);
     }
   }
 
   mesh.instanceMatrix.needsUpdate = true;
+  // Carry rotation across rebuilds; default to 180° flip on first build
+  mesh.rotation.y = activeMesh ? activeMesh.rotation.y : Math.PI;
   scene.add(mesh);
   activeMesh = mesh;
   return mesh;
