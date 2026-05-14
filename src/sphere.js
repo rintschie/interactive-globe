@@ -18,9 +18,13 @@ const DOT_MAT = new THREE.ShaderMaterial({
     uDotSizeWhite:  { value: 0.005                     },
     uMouseScreen:   { value: new THREE.Vector2(-9999, -9999) },
     uResolution:    { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+    uEdgeHardness:    { value: 0.0                       },
     uHoverRadius:     { value: 100.0                   },
     uHoverStrength:   { value: 0.25                    },
     uHoverElevation:  { value: 0.0                     },
+    uPinDirs:   { value: Array.from({ length: 20 }, () => new THREE.Vector3()) },
+    uPinColors: { value: Array.from({ length: 20 }, () => new THREE.Color()) },
+    uPinCount:  { value: 0.0 },
   },
   vertexShader: /* glsl */`
     #define PI 3.14159265358979
@@ -35,13 +39,30 @@ const DOT_MAT = new THREE.ShaderMaterial({
     uniform float     uHoverRadius;
     uniform float     uHoverStrength;
     uniform float     uHoverElevation;
+    #define MAX_PINS 20
+    uniform vec3  uPinDirs[MAX_PINS];
+    uniform vec3  uPinColors[MAX_PINS];
+    uniform float uPinCount;
 
-    varying vec3 vDotCenter;
-    varying vec3 vLocalPos;
+    varying vec3  vDotCenter;
+    varying vec3  vLocalPos;
+    varying float vIsPinned;
+    varying vec3  vPinColor;
 
     void main() {
       vec3  dir      = vec3(instanceMatrix[3]);
       float dotScale = instanceMatrix[0][0];
+
+      vIsPinned = 0.0;
+      vPinColor = vec3(0.0);
+      for (int i = 0; i < MAX_PINS; i++) {
+        if (float(i) >= uPinCount) break;
+        if (distance(dir, uPinDirs[i]) < 0.0001) {
+          vIsPinned = 1.0;
+          vPinColor = uPinColors[i];
+          break;
+        }
+      }
 
       vLocalPos  = dir * uSphereRadius;
 
@@ -79,21 +100,22 @@ const DOT_MAT = new THREE.ShaderMaterial({
     uniform vec3      uBgColor;
     uniform vec3      uCameraPos;
     uniform float     uBackOpacity;
+    uniform float     uEdgeHardness;
     uniform sampler2D uMap;
     uniform bool      uUseMap;
     varying vec3      vDotCenter;
     varying vec3      vLocalPos;
+    varying float     vIsPinned;
+    varying vec3      vPinColor;
 
     void main() {
-      // Use dot centre so the entire dot fades as one unit
       float facing   = dot(normalize(vDotCenter), normalize(uCameraPos));
-      // uBackOpacity=0 → cutoff at horizon, uBackOpacity=1 → past back pole (all visible)
-      // 1.0 - smoothstep keeps edges in ascending order (GLSL-safe)
       float cutoff   = -uBackOpacity;
-      float backFade = 1.0 - smoothstep(cutoff - 0.1, cutoff, facing);
+      float band     = mix(0.1, 0.0001, uEdgeHardness);
+      float backFade = 1.0 - smoothstep(cutoff - band, cutoff, facing);
 
-      float t = backFade;
-      gl_FragColor = vec4(mix(uDotColor, uBgColor, t), 1.0);
+      vec3 baseColor = mix(uDotColor, vPinColor, vIsPinned);
+      gl_FragColor = vec4(mix(baseColor, uBgColor, backFade), 1.0);
     }
   `,
 });
@@ -141,6 +163,7 @@ export function buildSphere(scene, params) {
   }
 
   mesh.instanceMatrix.needsUpdate = true;
+  DOT_MAT.uniforms.uPinCount.value = 0.0;
   // Carry rotation across rebuilds; default to 180° flip on first build
   mesh.rotation.y = activeMesh ? activeMesh.rotation.y : Math.PI;
   scene.add(mesh);
@@ -150,4 +173,37 @@ export function buildSphere(scene, params) {
 
 export function getActiveMesh() {
   return activeMesh;
+}
+
+export const MAX_PINS = 20;
+
+export function findNearestDotDir(lat, lon) {
+  if (!activeMesh) return null;
+  const latRad = lat * Math.PI / 180;
+  const lonRad = lon * Math.PI / 180;
+  const target = new THREE.Vector3(
+    Math.cos(latRad) * Math.cos(lonRad),
+    Math.sin(latRad),
+    -Math.cos(latRad) * Math.sin(lonRad)
+  );
+  const m = new THREE.Matrix4();
+  const d = new THREE.Vector3();
+  let minDist = Infinity, minIdx = 0;
+  for (let i = 0; i < activeMesh.count; i++) {
+    activeMesh.getMatrixAt(i, m);
+    d.set(m.elements[12], m.elements[13], m.elements[14]);
+    const dist = d.distanceTo(target);
+    if (dist < minDist) { minDist = dist; minIdx = i; }
+  }
+  activeMesh.getMatrixAt(minIdx, m);
+  return new THREE.Vector3(m.elements[12], m.elements[13], m.elements[14]);
+}
+
+export function syncPinUniforms(pins) {
+  const count = Math.min(pins.length, MAX_PINS);
+  for (let i = 0; i < count; i++) {
+    DOT_MAT.uniforms.uPinDirs.value[i].copy(pins[i].dir);
+    DOT_MAT.uniforms.uPinColors.value[i].copy(pins[i].color);
+  }
+  DOT_MAT.uniforms.uPinCount.value = count;
 }

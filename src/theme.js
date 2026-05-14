@@ -45,6 +45,7 @@ export function createThemeToggle(scene, dotMaterial, params) {
     scene.background.set(t.bg);
     dotMaterial.uniforms.uDotColor.value.set(t.dots);
     dotMaterial.uniforms.uBgColor.value.set(t.bg);
+    params.dotColor = t.dots;
     params.backgroundColor = t.bg;
 
     btn.innerHTML = isDark ? SUN : MOON;

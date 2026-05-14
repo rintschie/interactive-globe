@@ -14,9 +14,10 @@ const PRESETS = {
 
 export function createGUI(
   params, cameraState,
-  onRebuild, onBgChange, onBackOpacity, onContinents,
+  onRebuild, onDotColor, onBgChange, onBackOpacity, onEdgeHardness, onContinents,
   onSphereRadius, onDotSizeBlack, onDotSizeWhite,
-  onHoverStrength, onHoverRadius, onHoverElevation
+  onHoverStrength, onHoverRadius, onHoverElevation,
+  onAddPin
 ) {
   const gui = new GUI({ title: 'Globe Controls' });
 
@@ -32,13 +33,22 @@ export function createGUI(
   gui.add(params, 'sphereRadius', 0.1, 10, 0.1).name('Sphere Radius').onChange(onSphereRadius);
   gui.add(params, 'rotationSpeed', 0, 2, 0.01).name('Rotation Speed');
   gui.add(params, 'backOpacity', -1, 1, 0.01).name('Back Visibility').onChange(onBackOpacity);
+  gui.add(params, 'edgeHardness', 0, 1, 0.01).name('Edge Hardness').onChange(onEdgeHardness);
   gui.add(params, 'continentsEnabled').name('Continents Enabled').onChange(onContinents);
   gui.add(params, 'dotSizeBlack', 0, 0.05, 0.001).name('Continent Dots').onChange(onDotSizeBlack);
   gui.add(params, 'dotSizeWhite', 0, 0.05, 0.001).name('Ocean Dots').onChange(onDotSizeWhite);
   gui.add(params, 'hoverStrength', 0, 3, 0.01).name('Hover Enlargement').onChange(onHoverStrength);
   gui.add(params, 'hoverRadius', 0, 300, 1).name('Hover Radius (px)').onChange(onHoverRadius);
   gui.add(params, 'hoverElevation', 0, 2, 0.01).name('Hover Elevation').onChange(onHoverElevation);
+  gui.addColor(params, 'dotColor').name('Dot Color').onChange(onDotColor).listen();
   gui.addColor(params, 'backgroundColor').name('Background Color').onChange(onBgChange);
 
-  return gui;
+  const newPin = { lat: 0, lon: 0, color: '#FF0000' };
+  const pinsFolder = gui.addFolder('Pins');
+  pinsFolder.add(newPin, 'lat', -90, 90, 0.01).name('Latitude (N+, S−)');
+  pinsFolder.add(newPin, 'lon', -180, 180, 0.01).name('Longitude (E+, W−)');
+  pinsFolder.addColor(newPin, 'color').name('Color');
+  pinsFolder.add({ fn: () => onAddPin(newPin.lat, newPin.lon, newPin.color) }, 'fn').name('Add Pin');
+
+  return { gui, pinsFolder };
 }
